@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Star Monsters</title>
+  <!-- Import Google Font: Audiowide -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Audiowide&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.min.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      touch-action: none;
+    }
+    body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background-color: #000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      font-family: 'Audiowide', sans-serif;
+      color: white;
+    }
+    canvas {
+      display: block;
+    }
+    #game-container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      max-width: 500px;
+      max-height: 100vh;
+    }
+    #start-screen, #game-over-screen {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background-color: rgba(0, 0, 0, 0.8);
+      z-index: 10;
+    }
+    .btn {
+      padding: 12px 24px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 18px;
+      cursor: pointer;
+      margin-top: 20px;
+      user-select: none;
+    }
+    .title {
+      font-size: 36px;
+      margin-bottom: 20px;
+      color: #4CAF50;
+      text-align: center;
+    }
+    .score-display {
+      font-size: 24px;
+      margin-bottom: 20px;
+    }
+    #game-over-screen {
+      display: none;
+    }
+    /* Control overlay for desktop touch; hidden on mobile */
+    #control-overlay {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 20%;
+      display: flex;
+      z-index: 5;
+      opacity: 0.3;
+    }
+    .control-btn {
+      flex: 1;
+      user-select: none;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 24px;
+    }
+  </style>
+</head>
+<body>
+  <div id="game-container">
+    <div id="start-screen">
+      <h1 class="title">STAR MONSTERS</h1>
+      <p>Defeat the alien invasion!</p>
+      <button class="btn" id="start-btn">START GAME</button>
+    </div>
+    <div id="game-over-screen">
+      <h1 class="title">GAME OVER</h1>
+      <p class="score-display">Score: <span id="final-score">0</span></p>
+      <button class="btn" id="restart-btn">PLAY AGAIN</button>
+    </div>
+    <div id="control-overlay">
+      <div class="control-btn" id="left-btn">◀</div>
+      <div class="control-btn" id="fire-btn">🔥</div>
+      <div class="control-btn" id="right-btn">▶</div>
+    </div>
+  </div>
+  
+  <script>
+    // Global game object and variables
+    let game = {
+      state: 'start',
+      width: 0,
+      height: 0,
+      score: 0,
+      level: 1,
+      lives: 3,
+      playerSpeed: 5,
+      bulletSpeed: 10,
+      enemySpeed: 1,
+      enemyDropSpeed: 20,
+      enemyBulletSpeed: 5,
+      enemyShootingRate: 0.005,
+      enemyRows: 4,
+      enemyCols: 8,
+      enemyPadding: 15,
+      enemyDirection: 1,
+      enemyMoveDown: false,
+      playerSize: 40,
+      enemySize: 30,
+      bulletSize: 8,
+      starCount: 100,
+      stars: [],
+      player: null,
+      bullets: [],
+      enemies: [],
+      enemyBullets: [],
+      powerUps: [],
+      pickupTexts: [],
+      movingLeft: false,
+      movingRight: false,
+      firing: false,
+      lastShot: 0,
+      shootDelay: 350,
+      touchControls: { left: false, right: false, fire: false },
+      mobileTilt: 0,
+      explosion: { active: false, startTime: 0, duration: 1000 },
+      // Variables for firing patterns (timers and state)
+      nextWaveShotTime: 0,
+      nextFormationShotTime: 0,
+      nextRandomShotTime: 0,
+      currentWaveRow: 0,
+      waveDirection: 1,
+      // Boss fight placeholder state
+      bossFight: false,
+      bossFightStart: 0,
+      // Fixed power-up properties
+      powerUpSpeed: 1.5,   // Fixed slow speed for power-ups
+      powerUpSize: 40      // Fixed size (in pixels) for power-ups
+    };
+    
+    // Global AudioContext (reused for all sounds)
+    let audioCtx;
+    function getAudioCtx() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      return audioCtx;
+    }
+    
+    // DOM Elements
+    let startScreen, gameOverScreen, startBtn, restartBtn, finalScoreEl;
+    let leftBtn, rightBtn, fireBtn;
+    let canvas;
+    
+    function setup() {
+      startScreen = document.getElementById('start-screen');
+      gameOverScreen = document.getElementById('game-over-screen');
+      startBtn = document.getElementById('start-btn');
+      restartBtn = document.getElementById('restart-btn');
+      finalScoreEl = document.getElementById('final-score');
+      leftBtn = document.getElementById('left-btn');
+      rightBtn = document.getElementById('right-btn');
+      fireBtn = document.getElementById('fire-btn');
+      
+      startBtn.addEventListener('click', startGame);
+      restartBtn.addEventListener('click', restartGame);
+      
+      // Keyboard controls
+      window.addEventListener('keydown', keyPressed);
+      window.addEventListener('keyup', keyReleased);
+      
+      const container = document.getElementById('game-container');
+      game.width = container.clientWidth;
+      game.height = container.clientHeight;
+      
+      canvas = createCanvas(game.width, game.height);
+      canvas.parent('game-container');
+      
+      adjustGameParameters();
+      initStars();
+      
+      // Initialize player with default firepower = 1
+      game.player = {
+        x: game.width / 2,
+        y: game.height - game.playerSize * 2,
+        width: game.playerSize,
+        height: game.playerSize,
+        lives: game.lives,
+        firepower: 1,
+        powerUpEffect: { active: false, startTime: 0, duration: 1000 }
+      };
+      
+      initEnemies();
+      
+      // Initialize firing pattern timers
+      game.nextWaveShotTime = millis() + 500;
+      game.nextFormationShotTime = millis() + 800;
+      game.nextRandomShotTime = millis() + 300;
+      game.currentWaveRow = 0;
+      game.waveDirection = 1;
+      
+      setupTouchControls();
+    }
+    
+    function adjustGameParameters() {
+      const minDimension = min(game.width, game.height);
+      game.playerSize = minDimension * 0.08;
+      game.enemySize = minDimension * 0.06;
+      game.bulletSize = minDimension * 0.015;
+      
+      game.playerSpeed = game.width * 0.01;
+      game.bulletSpeed = game.height * 0.02;
+      game.enemySpeed = game.width * 0.002;
+      game.enemyBulletSpeed = game.height * 0.01;
+    }
+    
+    function initStars() {
+      game.stars = [];
+      for (let i = 0; i < game.starCount; i++) {
+        game.stars.push({
+          x: random(0, game.width),
+          y: random(0, game.height),
+          size: random(1, 3),
+          speed: random(0.5, 2)
+        });
+      }
+    }
+    
+    // Initialize enemies and assign power-up drop flags:
+    // One enemy from the last row gets a life upgrade drop.
+    // Two other enemies (if available) get a firepower upgrade.
+    function initEnemies() {
+      game.enemies = [];
+      const enemyWidth = game.enemySize + game.enemyPadding;
+      const enemyHeight = game.enemySize + game.enemyPadding;
+      const startX = (game.width - (game.enemyCols * enemyWidth)) / 2 + game.enemySize / 2;
+      const startY = game.height * 0.1;
+      
+      for (let row = 0; row < game.enemyRows; row++) {
+        for (let col = 0; col < game.enemyCols; col++) {
+          game.enemies.push({
+            x: startX + col * enemyWidth,
+            y: startY + row * enemyHeight,
+            width: game.enemySize,
+            height: game.enemySize,
+            row: row,
+            type: row % 3,
+            alive: true
+          });
+        }
+      }
+      
+      // Mark one enemy from the last row for extra-life upgrade
+      let lastRowEnemies = game.enemies.filter(e => e.row === game.enemyRows - 1);
+      if (lastRowEnemies.length > 0) {
+        let index = floor(random(0, lastRowEnemies.length));
+        lastRowEnemies[index].lifeUpgrade = true;
+      }
+      
+      // Mark up to two other enemies (that are not already marked) for firepower upgrade
+      let otherEnemies = game.enemies.filter(e => !e.lifeUpgrade);
+      shuffleArray(otherEnemies);
+      for (let i = 0; i < min(2, otherEnemies.length); i++) {
+        otherEnemies[i].firePowerUpgrade = true;
+      }
+    }
+    
+    // Utility: shuffle array in place
+    function shuffleArray(array) {
+      for (let i = array.length - 1; i > 0; i--) {
+          const j = floor(random(0, i + 1));
+          [array[i], array[j]] = [array[j], array[i]];
+      }
+    }
+    
+    function setupTouchControls() {
+      leftBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        game.touchControls.left = true;
+      });
+      leftBtn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        game.touchControls.left = false;
+      });
+      
+      rightBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        game.touchControls.right = true;
+      });
+      rightBtn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        game.touchControls.right = false;
+      });
+      
+      fireBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        game.touchControls.fire = true;
+      });
+      fireBtn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        game.touchControls.fire = false;
+      });
+    }
+    
+    // Device orientation handler for mobile tilt control
+    function handleOrientation(event) {
+      let tilt = event.gamma;
+      tilt = constrain(tilt, -30, 30);
+      game.mobileTilt = tilt / 30;
+    }
+    
+    function keyPressed() {
+      if (key === 'ArrowLeft' || key === 'a') {
+        game.movingLeft = true;
+      }
+      if (key === 'ArrowRight' || key === 'd') {
+        game.movingRight = true;
+      }
+      if (key === ' ' || key === 'ArrowUp' || key === 'w') {
+        game.firing = true;
+      }
+    }
+    
+    function keyReleased() {
+      if (key === 'ArrowLeft' || key === 'a') {
+        game.movingLeft = false;
+      }
+      if (key === 'ArrowRight' || key === 'd') {
+        game.movingRight = false;
+      }
+      if (key === ' ' || key === 'ArrowUp' || key === 'w') {
+        game.firing = false;
+      }
+    }
+    
+    function startGame() {
+      game.state = 'playing';
+      startScreen.style.display = 'none';
+      // Reset score, lives and level
+      game.score = 0;
+      game.lives = 3;
+      game.level = 1;
+      game.explosion.active = false;
+      game.bossFight = false;
+      
+      // Request device orientation permission for iOS (must be triggered by a user gesture)
+      if (typeof DeviceOrientationEvent !== 'undefined' &&
+          typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission()
+          .then(response => {
+            if (response === 'granted') {
+              window.addEventListener('deviceorientation', handleOrientation, true);
+            }
+          })
+          .catch(console.error);
+      } else {
+        window.addEventListener('deviceorientation', handleOrientation, true);
+      }
+      
+      // Hide on-screen controls and add canvas touch fire control for mobile
+      if ('ontouchstart' in window) {
+        document.getElementById('control-overlay').style.display = 'none';
+        canvas.elt.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+          game.touchControls.fire = true;
+        });
+        canvas.elt.addEventListener('touchend', (e) => {
+          e.preventDefault();
+          game.touchControls.fire = false;
+        });
+      }
+      
+      restartGame();
+    }
+    
+    // When restarting via "Play Again", the score is now reset to 0.
+    function restartGame() {
+      game.score = 0;  // Reset score explicitly here
+      game.bullets = [];
+      game.enemyBullets = [];
+      game.powerUps = [];
+      game.pickupTexts = [];
+      game.player.x = game.width / 2;
+      game.player.y = game.height - game.playerSize * 2;
+      game.player.lives = game.lives;
+      game.player.firepower = 1; // reset firepower on restart
+      game.explosion.active = false;
+      game.bossFight = false;
+      
+      initEnemies();
+      
+      // Reset firing timers for patterns
+      game.nextWaveShotTime = millis() + 500;
+      game.nextFormationShotTime = millis() + 800;
+      game.nextRandomShotTime = millis() + 300;
+      game.currentWaveRow = 0;
+      game.waveDirection = 1;
+      
+      gameOverScreen.style.display = 'none';
+      game.state = 'playing';
+    }
+    
+    function gameOver() {
+      game.state = 'gameOver';
+      finalScoreEl.textContent = game.score;
+      gameOverScreen.style.display = 'flex';
+    }
+    
+    function draw() {
+      background(0);
+      drawStars();
+      
+      // If in boss fight mode, show placeholder and wait for 5 seconds
+      if (game.bossFight) {
+        fill(255);
+        textSize(32);
+        textAlign(CENTER, CENTER);
+        text("BOSS FIGHT - Coming Soon", game.width/2, game.height/2);
+        if (millis() - game.bossFightStart > 5000) {
+          game.bossFight = false;
+          game.level++;
+          initEnemies();
+        }
+      } else {
+        if (game.state === 'playing') {
+          if (game.explosion.active) {
+            drawExplosion(game.player.x, game.player.y);
+            updateExplosion();
+          } else {
+            drawPlayer();
+            updatePlayer();
+          }
+          
+          drawBullets();
+          updateBullets();
+          
+          // For normal enemy stages only (skip firing if boss fight level)
+          if (game.level % 4 !== 0) {
+            drawEnemies();
+            updateEnemies();
+            handleEnemyFiring();
+          }
+          
+          drawEnemyBullets();
+          updateEnemyBullets();
+          updatePowerUps();
+          drawPowerUps();
+          checkCollisions();
+          checkPowerUpCollisions();
+          checkLevelComplete();
+          updatePickupTexts();
+          drawPickupTexts();
+          drawHUD();
+        }
+      }
+    }
+    
+    function drawStars() {
+      fill(255);
+      noStroke();
+      for (let star of game.stars) {
+        ellipse(star.x, star.y, star.size);
+        star.y += star.speed;
+        if (star.y > game.height) {
+          star.y = 0;
+          star.x = random(0, game.width);
+        }
+      }
+    }
+    
+    function drawPlayer() {
+      // If power-up effect active, draw a glowing outline
+      if (game.player.powerUpEffect.active) {
+        let t = millis() - game.player.powerUpEffect.startTime;
+        let alpha = map(t, 0, game.player.powerUpEffect.duration, 255, 0);
+        noFill();
+        stroke(255, 255, 0, alpha);
+        strokeWeight(4);
+        ellipse(game.player.x, game.player.y, game.player.width * 1.5);
+      }
+      noStroke();
+      fill(0, 255, 0);
+      rectMode(CENTER);
+      rect(game.player.x, game.player.y, game.player.width, game.player.height);
+      fill(0, 200, 0);
+      rect(game.player.x, game.player.y - game.playerSize * 0.2, game.playerSize * 0.5, game.playerSize * 0.3);
+      fill(255, 100, 0);
+      rect(game.player.x - game.playerSize * 0.3, game.player.y + game.playerSize * 0.3, game.playerSize * 0.2, game.playerSize * 0.3);
+      rect(game.player.x + game.playerSize * 0.3, game.player.y + game.playerSize * 0.3, game.playerSize * 0.2, game.playerSize * 0.3);
+    }
+    
+    function updatePlayer() {
+      if (game.movingLeft || game.touchControls.left) {
+        game.player.x -= game.playerSpeed;
+      }
+      if (game.movingRight || game.touchControls.right) {
+        game.player.x += game.playerSpeed;
+      }
+      if (game.mobileTilt) {
+        game.player.x += game.mobileTilt * game.playerSpeed;
+      }
+      
+      game.player.x = constrain(game.player.x, game.playerSize / 2, game.width - game.playerSize / 2);
+      
+      if ((game.firing || game.touchControls.fire) && millis() - game.lastShot > game.shootDelay) {
+        fireBullet();
+        game.lastShot = millis();
+      }
+    }
+    
+    // Fire bullet(s) – if firepower is upgraded, shoot four parallel bullets with a different (fiery) color.
+    function fireBullet() {
+      const ctx = getAudioCtx();
+      // If firepower is default
+      if (game.player.firepower === 1) {
+        game.bullets.push({
+          x: game.player.x,
+          y: game.player.y - game.playerSize / 2,
+          width: game.bulletSize,
+          height: game.bulletSize * 2,
+          fire: false
+        });
+      } else if (game.player.firepower === 4) {
+        let offset = game.player.width * 0.3;
+        game.bullets.push({
+          x: game.player.x - offset,
+          y: game.player.y - game.playerSize / 2,
+          width: game.bulletSize,
+          height: game.bulletSize * 2,
+          fire: true
+        });
+        game.bullets.push({
+          x: game.player.x - offset/3,
+          y: game.player.y - game.playerSize / 2,
+          width: game.bulletSize,
+          height: game.bulletSize * 2,
+          fire: true
+        });
+        game.bullets.push({
+          x: game.player.x + offset/3,
+          y: game.player.y - game.playerSize / 2,
+          width: game.bulletSize,
+          height: game.bulletSize * 2,
+          fire: true
+        });
+        game.bullets.push({
+          x: game.player.x + offset,
+          y: game.player.y - game.playerSize / 2,
+          width: game.bulletSize,
+          height: game.bulletSize * 2,
+          fire: true
+        });
+      }
+      
+      // Play shot sound
+      let oscillator = ctx.createOscillator();
+      let gainNode = ctx.createGain();
+      oscillator.type = 'square';
+      oscillator.frequency.value = 800;
+      gainNode.gain.value = 0.1;
+      oscillator.connect(gainNode);
+      gainNode.connect(ctx.destination);
+      oscillator.start();
+      oscillator.stop(ctx.currentTime + 0.05);
+    }
+    
+    function drawBullets() {
+      noStroke();
+      for (let bullet of game.bullets) {
+        rectMode(CENTER);
+        if (bullet.fire) {
+          fill(255, 69, 0); // fiery color for powered-up bullets
+        } else {
+          fill(0, 255, 255);
+        }
+        rect(bullet.x, bullet.y, bullet.width, bullet.height);
+      }
+    }
+    
+    function updateBullets() {
+      for (let i = game.bullets.length - 1; i >= 0; i--) {
+        game.bullets[i].y -= game.bulletSpeed;
+        if (game.bullets[i].y < 0) {
+          game.bullets.splice(i, 1);
+        }
+      }
+    }
+    
+    // New enemy firing patterns based on current level stage:
+    // Levels 1,2,3 use wave, formation, and random patterns respectively.
+    // Every 4th level triggers a boss fight (placeholder).
+    function handleEnemyFiring() {
+      // If boss fight stage, skip normal enemy firing
+      if (game.level % 4 === 0) {
+        return;
+      }
+      let pattern = (game.level % 4) - 1; // 0: wave, 1: formation, 2: random
+      
+      switch(pattern) {
+        case 0: // Wave pattern: fire from one row at a time (alternating direction)
+          if (millis() > game.nextWaveShotTime) {
+            let enemiesInRow = game.enemies.filter(e => e.alive && e.row === game.currentWaveRow);
+            if (enemiesInRow.length === 0) {
+              // search subsequent rows for an alive enemy
+              let found = false;
+              for (let r = game.currentWaveRow + 1; r < game.enemyRows; r++) {
+                enemiesInRow = game.enemies.filter(e => e.alive && e.row === r);
+                if (enemiesInRow.length > 0) {
+                  game.currentWaveRow = r;
+                  found = true;
+                  break;
+                }
+              }
+              if (!found) {
+                game.currentWaveRow = 0;
+                enemiesInRow = game.enemies.filter(e => e.alive && e.row === game.currentWaveRow);
+              }
+            }
+            if (enemiesInRow.length > 0) {
+              let shooter;
+              if (game.waveDirection === 1) {
+                shooter = enemiesInRow.reduce((a, b) => a.x < b.x ? a : b);
+              } else {
+                shooter = enemiesInRow.reduce((a, b) => a.x > b.x ? a : b);
+              }
+              game.enemyBullets.push({
+                x: shooter.x,
+                y: shooter.y + shooter.height / 2,
+                width: game.bulletSize,
+                height: game.bulletSize * 2
+              });
+            }
+            game.nextWaveShotTime = millis() + (500 / game.level);
+            game.currentWaveRow++;
+            if (game.currentWaveRow >= game.enemyRows) {
+              game.currentWaveRow = 0;
+              game.waveDirection *= -1;
+            }
+          }
+          break;
+        case 1: // Formation pattern: leftmost and rightmost alive aliens fire together
+          if (millis() > game.nextFormationShotTime) {
+            let aliveEnemies = game.enemies.filter(e => e.alive);
+            if (aliveEnemies.length > 0) {
+              let leftmost = aliveEnemies.reduce((a, b) => a.x < b.x ? a : b);
+              let rightmost = aliveEnemies.reduce((a, b) => a.x > b.x ? a : b);
+              game.enemyBullets.push({
+                x: leftmost.x,
+                y: leftmost.y + leftmost.height / 2,
+                width: game.bulletSize,
+                height: game.bulletSize * 2
+              });
+              game.enemyBullets.push({
+                x: rightmost.x,
+                y: rightmost.y + rightmost.height / 2,
+                width: game.bulletSize,
+                height: game.bulletSize * 2
+              });
+            }
+            game.nextFormationShotTime = millis() + (800 / game.level);
+          }
+          break;
+        case 2: // Random pattern: a random alive enemy fires
+          if (millis() > game.nextRandomShotTime) {
+            let aliveEnemies = game.enemies.filter(e => e.alive);
+            if (aliveEnemies.length > 0) {
+              let shooter = random(aliveEnemies);
+              game.enemyBullets.push({
+                x: shooter.x,
+                y: shooter.y + shooter.height / 2,
+                width: game.bulletSize,
+                height: game.bulletSize * 2
+              });
+            }
+            game.nextRandomShotTime = millis() + (300 / game.level);
+          }
+          break;
+      }
+    }
+    
+    function drawEnemyBullets() {
+      fill(255, 0, 0);
+      noStroke();
+      for (let bullet of game.enemyBullets) {
+        rectMode(CENTER);
+        rect(bullet.x, bullet.y, bullet.width, bullet.height);
+      }
+    }
+    
+    function updateEnemyBullets() {
+      for (let i = game.enemyBullets.length - 1; i >= 0; i--) {
+        game.enemyBullets[i].y += game.enemyBulletSpeed;
+        if (game.enemyBullets[i].y > game.height) {
+          game.enemyBullets.splice(i, 1);
+        }
+      }
+    }
+    
+    function drawEnemies() {
+      rectMode(CENTER);
+      for (let enemy of game.enemies) {
+        if (enemy.alive) {
+          switch (enemy.type) {
+            case 0:
+              fill(255, 0, 0);
+              rect(enemy.x, enemy.y, enemy.width, enemy.height);
+              fill(200, 0, 0);
+              ellipse(enemy.x - enemy.width * 0.25, enemy.y - enemy.height * 0.2, enemy.width * 0.2);
+              ellipse(enemy.x + enemy.width * 0.25, enemy.y - enemy.height * 0.2, enemy.width * 0.2);
+              rect(enemy.x, enemy.y + enemy.height * 0.2, enemy.width * 0.8, enemy.height * 0.2);
+              break;
+            case 1:
+              fill(255, 165, 0);
+              rect(enemy.x, enemy.y, enemy.width, enemy.height * 0.8, 5);
+              fill(200, 120, 0);
+              ellipse(enemy.x - enemy.width * 0.2, enemy.y - enemy.height * 0.1, enemy.width * 0.15);
+              ellipse(enemy.x + enemy.width * 0.2, enemy.y - enemy.height * 0.1, enemy.width * 0.15);
+              rect(enemy.x, enemy.y + enemy.height * 0.15, enemy.width * 0.6, enemy.height * 0.15);
+              break;
+            case 2:
+              fill(255, 0, 255);
+              ellipse(enemy.x, enemy.y, enemy.width, enemy.height);
+              fill(200, 0, 200);
+              ellipse(enemy.x - enemy.width * 0.25, enemy.y - enemy.height * 0.1, enemy.width * 0.2);
+              ellipse(enemy.x + enemy.width * 0.25, enemy.y - enemy.height * 0.1, enemy.width * 0.2);
+              arc(enemy.x, enemy.y + enemy.height * 0.15, enemy.width * 0.5, enemy.height * 0.3, 0, PI);
+              break;
+          }
+        }
+      }
+    }
+    
+    // Check collisions for bullets and enemy bullets.
+    // Also, if an enemy with a power-up flag is hit, spawn the appropriate power-up falling object.
+    function checkCollisions() {
+      // Player bullets vs enemies
+      for (let i = game.bullets.length - 1; i >= 0; i--) {
+        const bullet = game.bullets[i];
+        for (let j = 0; j < game.enemies.length; j++) {
+          const enemy = game.enemies[j];
+          if (enemy.alive && checkCollision(bullet, enemy)) {
+            enemy.alive = false;
+            game.bullets.splice(i, 1);
+            game.score += (game.enemyRows - enemy.row) * 10;
+            createExplosion(enemy.x, enemy.y);
+            // If this enemy was marked for a power-up drop, spawn the falling power-up.
+            if (enemy.lifeUpgrade) {
+              spawnPowerUp(enemy.x, enemy.y, "life");
+              delete enemy.lifeUpgrade;
+            } else if (enemy.firePowerUpgrade) {
+              spawnPowerUp(enemy.x, enemy.y, "fire");
+              delete enemy.firePowerUpgrade;
+            }
+            break;
+          }
+        }
+      }
+      
+      // Enemy bullets vs player
+      for (let i = game.enemyBullets.length - 1; i >= 0; i--) {
+        const bullet = game.enemyBullets[i];
+        if (checkCollision(bullet, game.player)) {
+          game.enemyBullets.splice(i, 1);
+          game.player.lives--;
+          // Reset firepower when hit
+          game.player.firepower = 1;
+          createPlayerHitEffect();
+          if (game.player.lives <= 0 && !game.explosion.active) {
+            game.explosion.active = true;
+            game.explosion.startTime = millis();
+          }
+        }
+      }
+    }
+    
+    function checkCollision(obj1, obj2) {
+      return (
+        obj1.x + obj1.width / 2 > obj2.x - obj2.width / 2 &&
+        obj1.x - obj1.width / 2 < obj2.x + obj2.width / 2 &&
+        obj1.y + obj1.height / 2 > obj2.y - obj2.height / 2 &&
+        obj1.y - obj1.height / 2 < obj2.y + obj2.height / 2
+      );
+    }
+    
+    function createExplosion(x, y) {
+      const ctx = getAudioCtx();
+      let oscillator = ctx.createOscillator();
+      let gainNode = ctx.createGain();
+      oscillator.type = 'sawtooth';
+      oscillator.frequency.value = 150;
+      gainNode.gain.setValueAtTime(0.5, ctx.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+      oscillator.connect(gainNode);
+      gainNode.connect(ctx.destination);
+      oscillator.start();
+      oscillator.stop(ctx.currentTime + 0.3);
+    }
+    
+    function createPlayerHitEffect() {
+      const ctx = getAudioCtx();
+      let oscillator = ctx.createOscillator();
+      let gainNode = ctx.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.value = 300;
+      gainNode.gain.setValueAtTime(0.5, ctx.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+      oscillator.connect(gainNode);
+      gainNode.connect(ctx.destination);
+      oscillator.start();
+      oscillator.stop(ctx.currentTime + 0.5);
+    }
+    
+    // Spawns a power-up falling object (type: "life" or "fire")
+    function spawnPowerUp(x, y, type) {
+      game.powerUps.push({
+        x: x,
+        y: y,
+        size: game.powerUpSize,
+        type: type
+      });
+    }
+    
+    // Update falling power-ups: they now move at a fixed, slow speed.
+    function updatePowerUps() {
+      for (let i = game.powerUps.length - 1; i >= 0; i--) {
+        game.powerUps[i].y += game.powerUpSpeed;
+        if (game.powerUps[i].y > game.height) {
+          game.powerUps.splice(i, 1);
+        }
+      }
+    }
+    
+    // Draw power-ups as neon circular orbs with a letter in the middle.
+    // "life" type: neon green circle with a "P" (for power up)
+    // "fire" type: neon yellow circle with an "F" (for fire power)
+    function drawPowerUps() {
+      textAlign(CENTER, CENTER);
+      textSize(16);
+      for (let powerUp of game.powerUps) {
+        strokeWeight(4);
+        if (powerUp.type === "life") {
+          stroke(0, 255, 0); // neon green border
+          fill(0);          // black fill
+          ellipse(powerUp.x, powerUp.y, powerUp.size);
+          noStroke();
+          fill(0, 255, 0);
+          text("P", powerUp.x, powerUp.y);
+        } else if (powerUp.type === "fire") {
+          strokeWeight(4);
+          stroke(255, 255, 0); // neon yellow border
+          fill(0);
+          ellipse(powerUp.x, powerUp.y, powerUp.size);
+          noStroke();
+          fill(255, 255, 0);
+          text("F", powerUp.x, powerUp.y);
+        }
+      }
+    }
+    
+    // Check if player collects a power-up
+    function checkPowerUpCollisions() {
+      for (let i = game.powerUps.length - 1; i >= 0; i--) {
+        let pu = game.powerUps[i];
+        if (checkCollision(pu, game.player)) {
+          // Play pickup sound
+          const ctx = getAudioCtx();
+          let osc = ctx.createOscillator();
+          let gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.value = 400;
+          gain.gain.value = 0.1;
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.1);
+          
+          if (pu.type === "life") {
+            if (game.player.lives < 3) {
+              game.player.lives++;
+              addPickupText("1UP", game.player.x, game.player.y);
+              triggerPlayerEffect();
+            } else {
+              game.score += 500;
+              addPickupText("500+", game.player.x, game.player.y);
+            }
+          } else if (pu.type === "fire") {
+            if (game.player.firepower < 4) {
+              game.player.firepower = 4;
+              addPickupText("🔥", game.player.x, game.player.y);
+              triggerPlayerEffect();
+            } else {
+              game.score += 100;
+              addPickupText("100+", game.player.x, game.player.y);
+            }
+          }
+          game.powerUps.splice(i, 1);
+        }
+      }
+    }
+    
+    // Add a pickup text (fades over time)
+    function addPickupText(textStr, x, y) {
+      game.pickupTexts.push({
+        x: x,
+        y: y,
+        text: textStr,
+        startTime: millis(),
+        duration: 1000
+      });
+    }
+    
+    // Update and remove expired pickup texts
+    function updatePickupTexts() {
+      for (let i = game.pickupTexts.length - 1; i >= 0; i--) {
+        if (millis() - game.pickupTexts[i].startTime > game.pickupTexts[i].duration) {
+          game.pickupTexts.splice(i, 1);
+        }
+      }
+    }
+    
+    function drawPickupTexts() {
+      textAlign(CENTER, CENTER);
+      for (let pt of game.pickupTexts) {
+        let t = millis() - pt.startTime;
+        let alpha = map(t, 0, pt.duration, 255, 0);
+        fill(255, alpha);
+        textSize(20);
+        text(pt.text, pt.x, pt.y - t / 20);
+      }
+    }
+    
+    // Trigger a brief glow effect around the player upon collecting a power-up
+    function triggerPlayerEffect() {
+      game.player.powerUpEffect.active = true;
+      game.player.powerUpEffect.startTime = millis();
+    }
+    
+    // Check if all enemies are dead; if so, move to next level or start a boss fight stage.
+    function checkLevelComplete() {
+      const allDead = game.enemies.every(enemy => !enemy.alive);
+      if (allDead) {
+        // If the next level should be a boss fight (every 4th level)
+        if ((game.level + 1) % 4 === 0) {
+          game.bossFight = true;
+          game.bossFightStart = millis();
+        } else {
+          game.level++;
+          game.enemySpeed += 0.2;
+          game.enemyShootingRate += 0.001;
+          initEnemies();
+        }
+      }
+    }
+    
+    function drawHUD() {
+      fill(255);
+      textSize(16);
+      textAlign(LEFT);
+      text(`Score: ${game.score}`, 10, 25);
+      text(`Level: ${game.level}`, 10, 45);
+      
+      // Draw lives as orange rectangles
+      for (let i = 0; i < game.player.lives; i++) {
+        fill(255, 165, 0);
+        rect(game.width - 80 + i * 20, 20, 15, 15);
+      }
+    }
+    
+    function updateExplosion() {
+      if (game.explosion.active && millis() - game.explosion.startTime > game.explosion.duration) {
+        game.explosion.active = false;
+        gameOver();
+      }
+    }
+    
+    function drawExplosion(x, y) {
+      let t = millis() - game.explosion.startTime;
+      let progress = t / game.explosion.duration;
+      let maxRadius = game.playerSize * 3;
+      let radius = progress * maxRadius;
+      noFill();
+      stroke(255, 0, 0, 255 * (1 - progress));
+      strokeWeight(4);
+      ellipse(x, y, radius, radius);
+    }
+    
+    document.addEventListener('touchstart', function(e) {
+      if (e.target.id !== 'start-btn' && e.target.id !== 'restart-btn') {
+        e.preventDefault();
+      }
+    }, { passive: false });
+    
+    document.addEventListener('touchmove', function(e) {
+      e.preventDefault();
+    }, { passive: false });
+    
+    window.addEventListener('resize', function() {
+      const container = document.getElementById('game-container');
+      game.width = container.clientWidth;
+      game.height = container.clientHeight;
+      resizeCanvas(game.width, game.height);
+      adjustGameParameters();
+    });
+  </script>
+</body>
+</html>
