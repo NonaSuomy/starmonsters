@@ -1,1 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Star Monsters Enhanced</title>
+  <link href="https://fonts.googleapis.com/css2?family=Audiowide&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.min.js"></script>
+  <style>
+    body { margin: 0; overflow: hidden; font-family: 'Audiowide', sans-serif; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+<script>
+let game = {
+  score: 0,
+  lives: 3,
+  level: 1,
+  bullets: [],
+  enemies: [],
+  enemyBullets: [],
+  powerUps: [],
+  firepower: 1,
+  enemyFireMode: 0,
+  lastShot: 0,
+  shootDelay: 350,
+  player: { x: 250, y: 450, lives: 3 },
+  score: 0,
+  audioCtx: new (window.AudioContext || window.webkitAudioContext)()
+};
+
+function setup() {
+  createCanvas(500, 500);
+  resetGame();
+}
+
+function restartGame() {
+  game.score = 0;
+  game.firepower = 1;
+  game.player.lives = 3;
+  initEnemies();
+}
+
+function initEnemies() {
+  game.enemies = [];
+  for (let y = 0; y < 4; y++) {
+    for (let x = 0; x < 8; x++) {
+      game.enemies.push({ x: 50 + x * 50, y: 50 + y * 40, alive: true });
+    }
+  }
+}
+
+function draw() {
+  background(0);
+  fill(255); rect(game.player.x, game.player.y, 40, 20);
+  
+  game.enemies.forEach(e => {
+    if(e.alive){ fill(255, 0, 0); ellipse(e.x, e.y, 30); }
+  });
+
+  handlePlayerBullets();
+  handleEnemyFire();
+  handlePowerUps();
+
+  fill(255); textSize(16);
+  text(`Score: ${game.score}`, 10, 25);
+  text(`Lives: ${game.player.lives}`, 10, 45);
+}
+
+function fireBullet() {
+  for(let i = 0; i < game.firepower; i++){
+    game.bullets.push({ x: game.player.x - 10 + (i*10), y: game.player.y - 10 });
+  }
+  playSound(800);
+}
+
+function handleEnemyFire(){
+  if(random() < 0.02 + (game.level * 0.001)){
+    let enemy = random(game.enemies.filter(e => e.alive));
+    game.enemyBullets.push({ x: enemy.x, y: enemy.y });
+  }
+}
+
+function draw() {
+  background(0);
+  initEnemies();
+}
+
+function checkCollisions() {
+  game.enemies.forEach((enemy, ei) => {
+    game.bullets.forEach((bullet, bi) => {
+      if(dist(enemy.x, enemy.y, bullet.x, bullet.y) < 15){
+        enemy.alive = false;
+        game.bullets.splice(bi, 1);
+        game.score += 10;
+
+        if(random() < 0.1 && enemy.y === max(game.enemies.map(e => e.y))){
+          game.powerUps.push({x: enemy.x, y: enemy.y, type: random() < 0.5 ? 'life' : 'fire'});
+        }
+      }
+  });
+}
+
+function collectPowerUps() {
+  game.powerUps.forEach((p, i) => {
+    p.y += 2;
+    fill(p.type === 'life' ? 'cyan' : 'orange');
+    ellipse(p.x, p.y, 15);
+
+    if(dist(p.x, p.y, game.player.x, game.player.y) < 20){
+      if(p.type === 'life'){
+        if(game.player.lives < 3){ game.player.lives++; showText("1UP"); }
+        else { game.score += 500; showText("500+"); }
+      } else {
+        if(game.firepower < 4){ game.firepower = 4; showText("🔥"); }
+        else { game.score += 100; showText("100+"); }
+      }
+      game.powerUps.splice(game.powerUps.indexOf(p), 1);
+    }
+  });
+}
+
+function showText(txt){
+  fill(255, 215, 0);
+  textSize(20);
+  text(txt, game.player.x, game.player.y - 20);
+}
+
+function soundEffect(type){
+  let osc = game.audioCtx.createOscillator();
+  let gain = game.audioCtx.createGain();
+  oscillator.type = type === 'power' ? 'triangle' : 'square';
+  oscillator.frequency.setValueAtTime(400, audioCtx.currentTime);
+  gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+  oscillator.connect(gain);
+  gain.connect(audioCtx.destination);
+  oscillator.start(); oscillator.stop(audioCtx.currentTime + 0.1);
+}
+
+window.setup = () => {
+  createCanvas(500, 500);
+  restartGame();
+}
+
+window.keyPressed = () => {
+  if(key === ' ') fireBullet();
+}
 
