@@ -44,6 +44,26 @@ let audioManager = {
     sfxVolume: 0.5,
     oscillators: [],
 
+    levelThemes: {
+        getScale: function(level) {
+            const scales = {
+                1: [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25, 587.33, 659.25],
+                2: [261.63, 293.66, 311.13, 349.23, 392.00, 415.30, 466.16, 523.25, 587.33, 622.25],
+                3: [261.63, 277.18, 329.63, 349.23, 392.00, 415.30, 493.88, 523.25, 554.37, 659.25],
+                4: [261.63, 311.13, 349.23, 370.00, 392.00, 466.16, 493.88, 523.25, 622.25, 698.46],
+                5: [261.63, 277.18, 293.66, 311.13, 329.63, 349.23, 370.00, 392.00, 415.30, 440.00]
+            };
+            const themeIndex = ((level - 1) % Object.keys(scales).length) + 1;
+            return scales[themeIndex];
+        },
+        
+        getSpeed: function(level) {
+            let baseSpeed = Math.max(100, 200 - (level * 10));
+            let threatLevel = audioManager.calculateThreatLevel ? audioManager.calculateThreatLevel() : 0;
+            return baseSpeed * (1 - (threatLevel * 0.7));
+        }
+    },
+
     markovMusic: {
         scales: {
             spaceScale: []
@@ -80,37 +100,11 @@ let audioManager = {
         }
     },
 
-    levelThemes: {
-        getScale: function(level) {
-            const scales = {
-                1: [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25, 587.33, 659.25],
-                2: [261.63, 293.66, 311.13, 349.23, 392.00, 415.30, 466.16, 523.25, 587.33, 622.25],
-                3: [261.63, 277.18, 329.63, 349.23, 392.00, 415.30, 493.88, 523.25, 554.37, 659.25],
-                4: [261.63, 311.13, 349.23, 370.00, 392.00, 466.16, 493.88, 523.25, 622.25, 698.46],
-                5: [261.63, 277.18, 293.66, 311.13, 329.63, 349.23, 370.00, 392.00, 415.30, 440.00]
-            };
-            const themeIndex = ((level - 1) % Object.keys(scales).length) + 1;
-            return scales[themeIndex];
-        },
-        
-        getSpeed: function(level) {
-            let baseSpeed = 500 - (level * 20); // Base speed for the level
-            let threatLevel = audioManager.calculateThreatLevel();
-            
-            // Adjust speed based on threat level (faster when enemies are closer)
-            let adjustedSpeed = baseSpeed * (1 - (threatLevel * 0.7));
-            
-            // Clamp the speed between 100ms and 500ms
-            return Math.min(Math.max(100, adjustedSpeed), 500);
-        }
-    },
-
     calculateThreatLevel: function() {
         if (!game.enemies.length) return 0;
         
-        // Find the closest enemy
         let closestDistance = game.height;
-        let maxDistance = game.height * 0.8; // 80% of screen height
+        let maxDistance = game.height * 0.8;
         
         game.enemies.forEach(enemy => {
             let distance = game.player.y - enemy.y;
@@ -119,7 +113,6 @@ let audioManager = {
             }
         });
         
-        // Calculate threat level (0 to 1)
         return Math.max(0, 1 - (closestDistance / maxDistance));
     },
 
@@ -135,90 +128,60 @@ let audioManager = {
     },
 
     playBackgroundMusic: function(level = 1) {
-        if (this.muted) return;
+        if (this.musicPlaying || this.muted) return;
         
         const ctx = this.getAudioContext();
         const scale = this.levelThemes.getScale(level);
-        
-        // Set up Markov chain scale
         this.markovMusic.scales.spaceScale = scale;
         this.markovMusic.currentNote = 4;
         
-        const playNote = () => {
+        const melody = ctx.createOscillator();
+        const harmony = ctx.createOscillator();
+        const bass = ctx.createOscillator();
+        
+        const melodyGain = ctx.createGain();
+        const harmonyGain = ctx.createGain();
+        const bassGain = ctx.createGain();
+        
+        melodyGain.gain.setValueAtTime(0.15 * this.musicVolume, ctx.currentTime);
+        harmonyGain.gain.setValueAtTime(0.08 * this.musicVolume, ctx.currentTime);
+        bassGain.gain.setValueAtTime(0.12 * this.musicVolume, ctx.currentTime);
+        
+        melody.connect(melodyGain);
+        harmony.connect(harmonyGain);
+        bass.connect(bassGain);
+        
+        melodyGain.connect(ctx.destination);
+        harmonyGain.connect(ctx.destination);
+        bassGain.connect(ctx.destination);
+        
+        melody.type = level % 2 === 0 ? 'sawtooth' : 'square';
+        harmony.type = level % 3 === 0 ? 'square' : 'triangle';
+        bass.type = level % 4 === 0 ? 'triangle' : 'sine';
+        
+        const updateFrequencies = () => {
             if (!this.musicPlaying || this.muted) return;
             
-            // Get current speed based on threat level
-            const speed = this.levelThemes.getSpeed(level);
-            
-            // Get next note frequency using Markov chain
             const baseFreq = this.markovMusic.getNextNote();
+            melody.frequency.setValueAtTime(baseFreq, ctx.currentTime);
+            harmony.frequency.setValueAtTime(baseFreq * 0.5, ctx.currentTime);
+            bass.frequency.setValueAtTime(baseFreq * 0.25, ctx.currentTime);
             
-            // Create oscillators for harmony
-            const osc1 = ctx.createOscillator();
-            const osc2 = ctx.createOscillator();
-            const osc3 = ctx.createOscillator();
-            
-            const gain1 = ctx.createGain();
-            const gain2 = ctx.createGain();
-            const gain3 = ctx.createGain();
-            
-            // Connect oscillators to gains
-            osc1.connect(gain1);
-            osc2.connect(gain2);
-            osc3.connect(gain3);
-            
-            // Connect gains to destination
-            gain1.connect(ctx.destination);
-            gain2.connect(ctx.destination);
-            gain3.connect(ctx.destination);
-            
-            // Get threat level for intensity
-            const threatLevel = this.calculateThreatLevel();
-            
-            // Adjust sound based on threat level
-            osc1.type = 'sine';
-            osc2.type = threatLevel > 0.7 ? 'square' : 'triangle';
-            osc3.type = threatLevel > 0.5 ? 'sawtooth' : 'square';
-            
-            // Set frequencies with harmony
-            osc1.frequency.setValueAtTime(baseFreq, ctx.currentTime);
-            osc2.frequency.setValueAtTime(baseFreq * 0.5, ctx.currentTime);
-            osc3.frequency.setValueAtTime(baseFreq * (1.5 + threatLevel * 0.5), ctx.currentTime);
-            
-            // Adjust volume based on threat level
-            const baseVolume = this.musicVolume;
-            gain1.gain.setValueAtTime(0.2 * baseVolume, ctx.currentTime);
-            gain2.gain.setValueAtTime(0.1 * baseVolume * (1 + threatLevel), ctx.currentTime);
-            gain3.gain.setValueAtTime(0.05 * baseVolume * (1 + threatLevel * 2), ctx.currentTime);
-            
-            // Fade out
-            const noteDuration = 0.3 - (threatLevel * 0.15); // Shorter notes when threatened
-            gain1.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + noteDuration);
-            gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + noteDuration);
-            gain3.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + noteDuration);
-            
-            // Start and stop oscillators
-            osc1.start(ctx.currentTime);
-            osc2.start(ctx.currentTime);
-            osc3.start(ctx.currentTime);
-            
-            osc1.stop(ctx.currentTime + noteDuration);
-            osc2.stop(ctx.currentTime + noteDuration);
-            osc3.stop(ctx.currentTime + noteDuration);
-            
-            // Add oscillators to tracking array
-            this.oscillators.push(
-                { osc: osc1, gain: gain1 },
-                { osc: osc2, gain: gain2 },
-                { osc: osc3, gain: gain3 }
-            );
-            
-            // Schedule next note
-            setTimeout(playNote, speed);
+            setTimeout(updateFrequencies, this.levelThemes.getSpeed(level));
         };
         
+        melody.start();
+        harmony.start();
+        bass.start();
+        
+        this.oscillators = [
+            { osc: melody, gain: melodyGain },
+            { osc: harmony, gain: harmonyGain },
+            { osc: bass, gain: bassGain }
+        ];
+        
         this.musicPlaying = true;
-        playNote();
+        updateFrequencies();
     },
 
     stopMusic: function() {
